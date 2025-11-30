@@ -14,7 +14,8 @@ class UserServiceException implements Exception {
 }
 
 class UserService {
-  UserService({http.Client? httpClient}) : _httpClient = httpClient ?? http.Client();
+  UserService({http.Client? httpClient})
+    : _httpClient = httpClient ?? http.Client();
 
   static const _baseUrl = 'https://api.azeoo.dev/v1';
   static const _apiToken =

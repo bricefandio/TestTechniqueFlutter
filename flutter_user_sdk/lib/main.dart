@@ -18,7 +18,9 @@ class FlutterUserProfileApp extends StatelessWidget {
         useMaterial3: true,
       ),
       onGenerateRoute: (settings) {
-        final uri = Uri.tryParse(settings.name ?? '') ?? Uri(path: settings.name ?? '/');
+        final uri =
+            Uri.tryParse(settings.name ?? '') ??
+            Uri(path: settings.name ?? '/');
 
         if (uri.path == '/profile') {
           final userIdParam = uri.queryParameters['userId'];
@@ -32,7 +34,8 @@ class FlutterUserProfileApp extends StatelessWidget {
 
           return MaterialPageRoute<void>(
             builder: (_) => const _ErrorScreen(
-              message: 'Paramètre userId manquant ou invalide pour la route /profile.',
+              message:
+                  'Paramètre userId manquant ou invalide pour la route /profile.',
             ),
           );
         }

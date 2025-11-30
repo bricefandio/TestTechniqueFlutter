@@ -11,7 +11,7 @@ class MyTestApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: FlutterUserSDK.showUserProfile(1),  // test avec userId 1
+      home: FlutterUserSDK.showUserProfile(1), // test avec userId 1
     );
   }
 }
