@@ -1,70 +1,106 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_user_sdk/src/screens/user_profile_screen.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import 'src/navigation/app_router.dart';
+import 'src/state/profile_controller.dart';
+import 'src/state/user_selection_notifier.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const FlutterUserProfileApp());
+  final initialUserId =
+      _extractUserId(WidgetsBinding.instance.platformDispatcher.defaultRouteName);
+
+  runApp(
+    ProviderScope(
+      overrides: [
+        userSelectionProvider.overrideWith(
+          (ref) => UserSelectionNotifier(initialUserId: initialUserId),
+        ),
+      ],
+      child: const FlutterUserProfileApp(),
+    ),
+  );
 }
 
-class FlutterUserProfileApp extends StatelessWidget {
+class FlutterUserProfileApp extends ConsumerStatefulWidget {
   const FlutterUserProfileApp({super.key});
 
   @override
+  ConsumerState<FlutterUserProfileApp> createState() => _FlutterUserProfileAppState();
+}
+
+class _FlutterUserProfileAppState extends ConsumerState<FlutterUserProfileApp> {
+  static const _channel = MethodChannel('flutter_user_sdk/user');
+
+  @override
+  void initState() {
+    super.initState();
+    _channel.setMethodCallHandler(_handleMethodCall);
+  }
+
+  Future<void> _handleMethodCall(MethodCall call) async {
+    switch (call.method) {
+      case 'showUserProfile':
+        final userId = _parseUserId(call.arguments);
+        if (userId != null) {
+          ref.read(userSelectionProvider.notifier).setUserId(userId);
+        }
+        break;
+      case 'refreshUserProfile':
+        final currentUserId = ref.read(userSelectionProvider);
+        if (currentUserId != null) {
+          await ref
+              .read(userProfileControllerProvider(currentUserId).notifier)
+              .load(forceRefresh: true);
+        }
+        break;
+      default:
+    }
+  }
+
+  @override
+  void dispose() {
+    _channel.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    final router = ref.watch(appRouterProvider);
+    return MaterialApp.router(
       title: 'AZEOO User SDK',
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
         useMaterial3: true,
       ),
-      onGenerateRoute: (settings) {
-        final uri = Uri.tryParse(settings.name ?? '') ?? Uri(path: settings.name ?? '/');
-
-        if (uri.path == '/profile') {
-          final userIdParam = uri.queryParameters['userId'];
-          final userId = int.tryParse(userIdParam ?? '');
-
-          if (userId != null) {
-            return MaterialPageRoute<void>(
-              builder: (_) => UserProfileScreen(userId: userId),
-            );
-          }
-
-          return MaterialPageRoute<void>(
-            builder: (_) => const _ErrorScreen(
-              message: 'Paramètre userId manquant ou invalide pour la route /profile.',
-            ),
-          );
-        }
-
-        return MaterialPageRoute<void>(
-          builder: (_) => const _ErrorScreen(
-            message: 'Route inconnue. Utilisez /profile?userId=<id>.',
-          ),
-        );
-      },
+      routerConfig: router,
     );
   }
 }
 
-class _ErrorScreen extends StatelessWidget {
-  final String message;
-
-  const _ErrorScreen({required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(
-            message,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        ),
-      ),
-    );
+int? _extractUserId(String route) {
+  final uri = Uri.tryParse(route);
+  if (uri == null) {
+    return null;
   }
+  if (uri.path == '/profile') {
+    final userParam = uri.queryParameters['userId'];
+    return int.tryParse(userParam ?? '');
+  }
+  return null;
+}
+
+int? _parseUserId(dynamic args) {
+  if (args is Map) {
+    final value = args['userId'];
+    if (value is int) {
+      return value;
+    }
+    return int.tryParse(value?.toString() ?? '');
+  }
+  if (args is int) {
+    return args;
+  }
+  return int.tryParse(args?.toString() ?? '');
 }

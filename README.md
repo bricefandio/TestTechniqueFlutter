@@ -62,66 +62,45 @@ Le SDK fournit :
 
 ### 2.2. Architecture interne (Flutter)
 
-Le SDK est structuré en couches :
+Le SDK est structuré en couches clairement séparées :
+
+- **Navigation**  
+  `lib/src/navigation/app_router.dart` expose un `GoRouter` minimaliste. L’utilisation d’`auto_route` ou `go_router` faisait partie des exigences : nous avons retenu `go_router` pour sa compatibilité avec Riverpod et sa simplicité lorsqu’il faut embarquer Flutter dans d’autres hôtes.
+
+- **State management**  
+  Toute la logique d’état est centralisée via **Riverpod** :
+  - `user_selection_notifier.dart` stocke l’`userId` courant et évite l’usage direct de `setState`.
+  - `profile_controller.dart` expose un `StateNotifier` responsable du cycle de vie des appels API (`loading` / `error` / `success`) et de l’invalidation manuelle (pull-to-refresh, demandes du host via `MethodChannel`).
 
 - **Presentation**
-  - `lib/main.dart`  
-    Configure l’application Flutter côté SDK et écoute les commandes venant du host (React Native / Android) via un `MethodChannel`.
-  - `lib/src/screens/user_profile_screen.dart`  
-    Écran d’affichage du profil utilisateur à partir d’un `userId`.
-
-- **Domain / État**
-  - Un **state management basé sur un `ValueNotifier<int?>`** (`_userIdNotifier`) pour publier l’`userId` courant dans l’app.
-  - Le widget racine `FlutterUserProfileApp` écoute ce notifier et bascule entre :
-    - un écran d’attente lorsque aucun `userId` n’est disponible,
-    - un `UserProfileScreen` lorsqu’un `userId` valide est reçu.
-
-  Ce pattern permet d’avoir un **state centralisé** et réactif, sans utiliser directement `setState` dans les écrans de haut niveau. L’écran consomme un modèle déjà résolu (User) via un `FutureBuilder`.
+  - `FlutterUserProfileApp` injecte un `ProviderScope`, configure le router et se connecte au `MethodChannel flutter_user_sdk/user`.
+  - `ProfileHostScreen` affiche soit un state vide (aucun `userId` fourni), soit l’écran `UserProfileScreen`.
+  - `UserProfileScreen` consomme `userProfileControllerProvider` pour afficher le profil, une progress bar, une vue d’erreur avec bouton retry et un `RefreshIndicator`.
 
 - **Data**
-  - `lib/src/models/user.dart`  
-    Modèle immuable représentant l’utilisateur (id, prénom, nom, avatar, etc.).
-  - `lib/src/services/user_service.dart`  
-    Service HTTP qui :
-    - appelle l’API AZEOO :
-      ```http
-      GET https://api.azeoo.dev/v1/users/me
-      Headers :
-        Accept-Language: fr-FR
-        X-User-Id: <userId>
-        Authorization: Bearer <TOKEN fournie>
-      ```
-    - mappe la réponse JSON => `User`.
+  - `UserService` encapsule l’appel REST vers `https://api.azeoo.dev/v1/users/me` avec les en-têtes imposés.  
+    Un cache mémoire (`Map<int, User>`) évite les requêtes inutiles et sert de “minimum cache” demandé.
 
 ### 2.3. Navigation (Flutter)
 
-La logique suivante est utilisée :
-
-- Au démarrage :
-  - `WidgetsBinding.instance.platformDispatcher.defaultRouteName` est analysé.
-  - Si la route ressemble à `/profile?userId=<id>`, l’`userId` est extrait.
-- Pendant la vie de l’app :
-  - Un `MethodChannel` nommé `flutter_user_sdk/user` écoute les appels du host :
-    - méthode : `showUserProfile`
-    - arguments : `{ "userId": <int> }`
-  - Lorsqu’un appel est reçu, l’`userId` est mis à jour dans `_userIdNotifier`.
-
-Au lieu d’empiler des routes avec `Navigator.push`, on **reconstruit simplement l’écran de profil depuis l’état courant**, ce qui reste simple à intégrer côté host.
+- Au démarrage, nous analysons `WidgetsBinding.instance.platformDispatcher.defaultRouteName` pour déterminer un `userId` initial (utile lorsque Flutter est lancé avec une route dédiée).
+- L’application repose sur `GoRouter` pour orchestrer les écrans. Même si un seul écran est disponible aujourd’hui, l’approche est scalable : ajouter d’autres flows dans le SDK revient à déclarer de nouvelles routes.
+- Pendant la vie de l’app, le host communique via le `MethodChannel` `flutter_user_sdk/user` :
+  - `showUserProfile` → met à jour l’`userId` Riverpod (ce qui trigger un rebuild / refresh).
+  - `refreshUserProfile` → force l’invalidation du cache et relance la requête.
 
 ### 2.4. Gestion des erreurs, chargement, cache
 
 Dans `UserProfileScreen` :
 
-- **Chargement** : affichage d’un `CircularProgressIndicator` pendant la récupération des données.
-- **Erreur** : message d’erreur générique si la requête échoue (statut HTTP ≠ 200, timeouts, parsing…).
-- **Succès** : affichage des infos utilisateur.
+- **Chargement** : `AsyncValue.loading` → `CircularProgressIndicator`.
+- **Erreur** : `AsyncValue.error` → écran dédié avec bouton `Réessayer` (force `forceRefresh: true`).
+- **Succès** : affichage du profil, bouton “Rafraîchir” et `RefreshIndicator` natif.
 
 **Cache minimal** :
 
-- Le service `UserService` peut conserver en mémoire le dernier profil récupéré, par `userId`.  
-  Ce cache permet :
-  - de réafficher instantanément un profil déjà chargé pendant la session,
-  - de limiter les appels API si on repasse sur le même `userId`.
+- `UserService` conserve en mémoire le dernier profil pour chaque `userId`.
+- Le cache est utilisé automatiquement lors d’un nouvel affichage mais peut être invalidé (pull-to-refresh ou appel `refreshUserProfile`).
 
 ---
 
@@ -232,23 +211,16 @@ Côté rn_app/android/app/src/main/java/com/rn_app/ :
 
 MainApplication.java :
 
-initialisation d’un FlutterEngine global,
-
-enregistrement du MethodChannel (flutter_user_sdk/user),
-
-mise en cache de l’engine si nécessaire.
+- pré-chauffe un `FlutterEngine` (DartEntrypoint exécuté dès le démarrage de l’app RN),
+- enregistre automatiquement les plugins Flutter (`GeneratedPluginRegistrant`),
+- stocke l’engine dans le `FlutterEngineCache` pour réutilisation.
 
 FlutterHostActivity.kt :
 
-Activité Kotlin qui :
-
-récupère le userId passé via Intent depuis RN,
-
-utilise le FlutterEngine existant,
-
-appelle le MethodChannel showUserProfile avec { userId: <int> },
-
-affiche le contenu Flutter (profil utilisateur).
+- récupère le `userId` reçu via `Intent`,
+- récupère l’engine mis en cache via `provideFlutterEngine`,
+- envoie `showUserProfile` (ou `refresh`) via `MethodChannel` sur l’engine déjà en cours d’exécution,
+- affiche immédiatement la vue Flutter (aucune recréation d’engine).
 
 FlutterUserSdkModule.kt + FlutterUserSdkPackage.kt :
 
@@ -258,35 +230,26 @@ méthode JS openUserProfile(userId: number) qui démarre FlutterHostActivity.
 
 3.4. Côté React Native (JS/TS)
 
-App.tsx :
+- `App.tsx`  
+  Utilise `NavigationContainer` + `createBottomTabNavigator` (2 onglets). Le provider `UserIdProvider` (basé sur `AsyncStorage`) injecte l’`userId` partout dans l’application.
 
-Configure la navigation avec @react-navigation/native + @react-navigation/native-stack.
+- `HomeScreen.tsx`  
+  Onglet 1 : saisie d’un userId → validation → persistance dans `AsyncStorage`. A chaque sauvegarde, le contexte est mis à jour, ce qui déclenche un refresh du SDK Flutter.
 
-Déclare deux écrans :
+- `FlutterUserProfileScreen.tsx`  
+  Onglet 2 : écoute le contexte `useUserId` et, à chaque focus du tab, appelle automatiquement `openFlutterUserProfile(userId)` pour afficher / rafraîchir la vue Flutter. Bouton secondaire “Relancer / rafraîchir” pour forcer l’actualisation.
 
-Home : saisie de l’userId,
+- `src/state/UserIdContext.tsx`  
+  Centralise la persistance de l’`userId` (chargement initial + hook `useUserId`).
 
-FlutterProfile : déclenche l’ouverture de l’écran Flutter.
+- `src/native/FlutterUserSdk.ts`  
+  Wrapper TypeScript sécurisé qui s’appuie sur le NativeModule (Android + iOS) et expose une API `Promise` (gestion d’erreurs côté JS).
 
-src/screens/HomeScreen.tsx :
+3.5. Bridge natif côté iOS
 
-Input pour saisir userId (ex. 1 ou 3).
-
-Bouton “Sauvegarder” qui :
-
-persiste userId (state / async storage possible),
-
-redirige vers l’écran de profil.
-
-src/screens/FlutterUserProfileScreen.tsx :
-
-Récupère l’userId (via params / storage),
-
-Appelle le module natif FlutterUserSdk.openUserProfile(userId) pour lancer l’activité Flutter.
-
-src/native/FlutterUserSdk.ts :
-
-Petit wrapper TypeScript autour du NativeModules RN.
+- `AppDelegate` démarre un `FlutterEngine` partagé (`flutter_user_engine`) et enregistre les plugins générés.
+- `FlutterUserSdkModule.m` implémente `RCTBridgeModule`, présente un `FlutterViewController` associé à l’engine et communique via le `MethodChannel flutter_user_sdk/user`.
+- La promesse retournée au layer JS permet de savoir quand la vue Flutter est affichée (utile pour tracer les rafraîchissements).
 
 4. Installation & exécution
 4.1. Prérequis
@@ -304,21 +267,24 @@ Android SDK avec API 34
 Android Studio (ou équivalent) pour les outils de build
 
 4.2. Build du SDK Flutter
+```bash
 cd flutter_user_sdk
 flutter pub get
 flutter build aar
+flutter build ios-framework --cocoapods --output=build/ios-framework
+```
 
+Cela génère :
 
-Cela génère les AAR dans :
-
-flutter_user_sdk/build/host/outputs/repo
-
-
-Ils sont ensuite référencés par l’app RN via maven { url '../../flutter_user_sdk/build/host/outputs/repo' }.
+- les AAR dans `flutter_user_sdk/build/host/outputs/repo` (consommés côté Android via le repository Maven local),
+- les frameworks iOS dans `flutter_user_sdk/build/ios-framework`. Ce build crée également `.ios/Flutter/podhelper.rb` utilisé par le Podfile RN.
 
 4.3. Installation des dépendances React Native
+```bash
 cd rn_app
 npm install
+cd ios && pod install
+```
 
 4.4. Build Android
 cd rn_app/android
@@ -332,41 +298,23 @@ rn_app/android/app/build/outputs/apk/debug/
 5. Choix techniques et justification
 5.1. State management
 
-Utilisation d’un ValueNotifier<int?> global pour gérer l’userId :
-
-simple,
-
-réactif,
-
-facilement accessible depuis le host via MethodChannel.
-
-L’écran Flutter lit l’état via un widget dédié (FlutterUserProfileApp) qui écoute ce notifier.
-
-Ce choix permet d’éviter setState dispersé partout et d’avoir un point d’entrée unique pour les mises à jour d’état venant du host.
+- Riverpod (`StateNotifierProvider`) gouverne l’`userId` courant ainsi que l’état réseau (`AsyncValue<User>`).
+- Aucune logique ne repose sur `setState`. Toutes les mutations proviennent soit du `MethodChannel`, soit d’actions utilisateur (pull-to-refresh, bouton “Rafraîchir”).
+- Les dépendances sont injectées via `ProviderScope`, ce qui facilite les tests unitaires (mock du `UserService`).
 
 5.2. Architecture modulaire
 
-Séparation stricte :
-
-UI (écrans),
-
-Service (API),
-
-Modèle (User),
-
-Bridge host (MethodChannel).
-
-Cette structure facilite l’évolution vers un state management plus avancé (Riverpod, Bloc, etc.) si besoin.
+- UI : `ProfileHostScreen`, `UserProfileScreen`, composants de feedback.
+- Navigation : `GoRouter` isolé dans `src/navigation`.
+- State : notifiers et providers dans `src/state`.
+- Data : `UserService` + cache mémoire.
+- Bridge : `MethodChannel` unique `flutter_user_sdk/user`.
 
 5.3. Navigation
 
-Pas d’utilisation de Navigator.push côté host.
-
-Navigation “pilotée par l’état” :
-
-host envoie userId à Flutter,
-
-Flutter met à jour l’écran à partir de cet état.
+- Utilisation de `go_router` (exigence “navigation avancée”).
+- Ajout d’une route host qui pourra facilement évoluer (ex : ajouter une sous-navigation Flutter pour gérer la tabbar côté SDK si nécessaire).
+- Synchronisation host ↔ Flutter via route initiale ET via `MethodChannel`.
 
 5.4. Intégration API
 
@@ -380,9 +328,8 @@ parsing JSON → modèle User.
 
 5.5. Cache minimal
 
-Caching en mémoire des profils déjà récupérés (par userId) dans le service.
-
-Permet d’éviter des calls réseau inutiles dans la même session.
+- `UserService` stocke les profils par `userId` dans `_memoryCache`.
+- `ProfileController` commence par servir le cache (UX instantanée) puis peut forcer un refresh (pull-to-refresh, bouton, commande host).
 
 6. Améliorations possibles
 
@@ -396,11 +343,9 @@ le parsing JSON.
 
 Ajouter un cache persistant (SharedPreferences / local DB) pour gérer le offline.
 
-Ajouter des écrans supplémentaires dans le SDK Flutter (2 onglets gérés entièrement côté Flutter, comme demandé dans l’énoncé) :
+Ajouter des écrans supplémentaires dans le SDK Flutter (ex : activity feed, préférences).
 
-par exemple : Profil / Activité à l’intérieur du SDK.
-
-Ajouter l’intégration iOS native (Swift) en important le module Flutter sur Xcode.
+Outiller davantage la partie iOS (fermeture programmatique de la `FlutterViewController`, gestures custom, etc.).
 
 7. Vidéo de présentation (optionnel)
 

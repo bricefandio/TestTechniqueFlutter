@@ -1,18 +1,36 @@
-import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import HomeScreen from './src/screens/HomeScreen';
-import FlutterUserProfileScreen from './src/screens/FlutterUserProfileScreen';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import React from 'react';
+import { enableScreens } from 'react-native-screens';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-const Stack = createNativeStackNavigator();
+import FlutterUserProfileScreen from './src/screens/FlutterUserProfileScreen';
+import HomeScreen from './src/screens/HomeScreen';
+import { UserIdProvider } from './src/state/UserIdContext';
+
+enableScreens();
+
+const Tab = createBottomTabNavigator();
 
 export default function App() {
   return (
-    <NavigationContainer>
-      <Stack.Navigator initialRouteName="Home">
-        <Stack.Screen name="Home" component={HomeScreen} />
-        <Stack.Screen name="FlutterProfile" component={FlutterUserProfileScreen} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <SafeAreaProvider>
+      <UserIdProvider>
+        <NavigationContainer>
+          <Tab.Navigator>
+            <Tab.Screen
+              name="userId"
+              component={HomeScreen}
+              options={{ title: 'Identifiant' }}
+            />
+            <Tab.Screen
+              name="flutterProfile"
+              component={FlutterUserProfileScreen}
+              options={{ title: 'Profil Flutter' }}
+            />
+          </Tab.Navigator>
+        </NavigationContainer>
+      </UserIdProvider>
+    </SafeAreaProvider>
   );
 }

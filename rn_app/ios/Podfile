@@ -4,6 +4,12 @@ require_relative '../node_modules/@react-native-community/cli-platform-ios/nativ
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
 
+flutter_application_path = File.expand_path('../flutter_user_sdk', __dir__)
+require File.expand_path('Flutter/podhelper', File.join(flutter_application_path, '.ios')) if File.exist?(File.join(flutter_application_path, '.ios', 'Flutter', 'podhelper.rb'))
+if defined?(flutter_ios_podfile_setup)
+  flutter_ios_podfile_setup
+end
+
 # If you are using a `react-native-flipper` your iOS build will fail when `NO_FLIPPER=1` is set.
 # because `react-native-flipper` depends on (FlipperKit,...) that will be excluded
 #
@@ -42,6 +48,11 @@ target 'rn_app' do
     # An absolute path to your application root.
     :app_path => "#{Pod::Config.instance.installation_root}/.."
   )
+
+  if defined?(flutter_install_ios_engine_pods)
+    flutter_install_ios_engine_pods flutter_application_path
+    flutter_install_ios_plugin_pods flutter_application_path
+  end
 
   target 'rn_appTests' do
     inherit! :complete

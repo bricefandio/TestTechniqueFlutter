@@ -17,6 +17,8 @@
         <activity
             android:name=".FlutterHostActivity"
             android:exported="false"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|keyboardHidden|screenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:theme="@style/Theme.AppCompat.Light.NoActionBar" />
 
     </application>
