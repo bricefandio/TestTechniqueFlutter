@@ -164,3 +164,268 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+
+
+
+
+
+
+
+
+
+Dans android/settings.gradle :
+
+rootProject.name = 'rn_app'
+apply from: file("../node_modules/@react-native-community/cli-platform-android/native_modules.gradle")
+applyNativeModulesSettingsGradle(settings)
+include ':app'
+
+
+
+
+
+Dans android/app/build.gradle (extraits importants) :
+
+android {
+    compileSdkVersion rootProject.ext.compileSdkVersion
+
+    defaultConfig {
+        applicationId "com.rn_app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        debug { }
+        release { }
+        profile { initWith debug }
+    }
+}
+
+repositories {
+    maven { url '../../flutter_user_sdk/build/host/outputs/repo' }
+    maven { url "https://storage.googleapis.com/download.flutter.io" }
+    maven { url "$rootDir/local-maven" }
+    google()
+    mavenCentral()
+}
+
+dependencies {
+    implementation("com.facebook.react:react-android")
+    implementation("com.facebook.react:flipper-integration")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.0.0")
+
+    debugImplementation 'com.example.flutter_user_sdk:flutter_debug:1.0'
+    profileImplementation 'com.example.flutter_user_sdk:flutter_profile:1.0'
+    releaseImplementation 'com.example.flutter_user_sdk:flutter_release:1.0'
+}
+
+
+Ces blocs permettent à l’app RN de consommer le SDK Flutter comme un module AAR Maven.
+
+3.3. Bridge natif côté Android
+
+Côté rn_app/android/app/src/main/java/com/rn_app/ :
+
+MainApplication.java :
+
+initialisation d’un FlutterEngine global,
+
+enregistrement du MethodChannel (flutter_user_sdk/user),
+
+mise en cache de l’engine si nécessaire.
+
+FlutterHostActivity.kt :
+
+Activité Kotlin qui :
+
+récupère le userId passé via Intent depuis RN,
+
+utilise le FlutterEngine existant,
+
+appelle le MethodChannel showUserProfile avec { userId: <int> },
+
+affiche le contenu Flutter (profil utilisateur).
+
+FlutterUserSdkModule.kt + FlutterUserSdkPackage.kt :
+
+Module React Native natif exposé vers JS :
+
+méthode JS openUserProfile(userId: number) qui démarre FlutterHostActivity.
+
+3.4. Côté React Native (JS/TS)
+
+App.tsx :
+
+Configure la navigation avec @react-navigation/native + @react-navigation/native-stack.
+
+Déclare deux écrans :
+
+Home : saisie de l’userId,
+
+FlutterProfile : déclenche l’ouverture de l’écran Flutter.
+
+src/screens/HomeScreen.tsx :
+
+Input pour saisir userId (ex. 1 ou 3).
+
+Bouton “Sauvegarder” qui :
+
+persiste userId (state / async storage possible),
+
+redirige vers l’écran de profil.
+
+src/screens/FlutterUserProfileScreen.tsx :
+
+Récupère l’userId (via params / storage),
+
+Appelle le module natif FlutterUserSdk.openUserProfile(userId) pour lancer l’activité Flutter.
+
+src/native/FlutterUserSdk.ts :
+
+Petit wrapper TypeScript autour du NativeModules RN.
+
+4. Installation & exécution
+4.1. Prérequis
+
+Flutter : version compatible (>= 3.5.0)
+
+Dart : >= 3.5.0
+
+Node.js : recommandé >= 18
+
+Java JDK : 17
+
+Android SDK avec API 34
+
+Android Studio (ou équivalent) pour les outils de build
+
+4.2. Build du SDK Flutter
+cd flutter_user_sdk
+flutter pub get
+flutter build aar
+
+
+Cela génère les AAR dans :
+
+flutter_user_sdk/build/host/outputs/repo
+
+
+Ils sont ensuite référencés par l’app RN via maven { url '../../flutter_user_sdk/build/host/outputs/repo' }.
+
+4.3. Installation des dépendances React Native
+cd rn_app
+npm install
+
+4.4. Build Android
+cd rn_app/android
+./gradlew assembleDebug
+
+
+L’APK debug générée se trouvera dans :
+
+rn_app/android/app/build/outputs/apk/debug/
+
+5. Choix techniques et justification
+5.1. State management
+
+Utilisation d’un ValueNotifier<int?> global pour gérer l’userId :
+
+simple,
+
+réactif,
+
+facilement accessible depuis le host via MethodChannel.
+
+L’écran Flutter lit l’état via un widget dédié (FlutterUserProfileApp) qui écoute ce notifier.
+
+Ce choix permet d’éviter setState dispersé partout et d’avoir un point d’entrée unique pour les mises à jour d’état venant du host.
+
+5.2. Architecture modulaire
+
+Séparation stricte :
+
+UI (écrans),
+
+Service (API),
+
+Modèle (User),
+
+Bridge host (MethodChannel).
+
+Cette structure facilite l’évolution vers un state management plus avancé (Riverpod, Bloc, etc.) si besoin.
+
+5.3. Navigation
+
+Pas d’utilisation de Navigator.push côté host.
+
+Navigation “pilotée par l’état” :
+
+host envoie userId à Flutter,
+
+Flutter met à jour l’écran à partir de cet état.
+
+5.4. Intégration API
+
+Utilisation du package http pour :
+
+requête GET vers /v1/users/me,
+
+ajout des headers : Accept-Language, Authorization, X-User-Id,
+
+parsing JSON → modèle User.
+
+5.5. Cache minimal
+
+Caching en mémoire des profils déjà récupérés (par userId) dans le service.
+
+Permet d’éviter des calls réseau inutiles dans la même session.
+
+6. Améliorations possibles
+
+Ajouter des tests unitaires sur :
+
+le UserService,
+
+la gestion d’erreurs HTTP,
+
+le parsing JSON.
+
+Ajouter un cache persistant (SharedPreferences / local DB) pour gérer le offline.
+
+Ajouter des écrans supplémentaires dans le SDK Flutter (2 onglets gérés entièrement côté Flutter, comme demandé dans l’énoncé) :
+
+par exemple : Profil / Activité à l’intérieur du SDK.
+
+Ajouter l’intégration iOS native (Swift) en important le module Flutter sur Xcode.
+
+7. Vidéo de présentation (optionnel)
+
+Une vidéo de quelques minutes peut être ajoutée pour :
+
+Montrer le flow complet :
+
+saisie de l’userId dans l’onglet React Native,
+
+ouverture de l’écran Flutter affichant le profil correspondant.
+
+Expliquer :
+
+les choix d’architecture,
+
+la logique d’intégration AAR,
+
+la gestion de l’état et des erreurs.
+
+8. Auteurs
+
+Développement & intégration : Brice Georgy Fandio
+
+Contact : [https://www.linkedin.com/in/brice-georgy-fandio-80ab27171/
+bricegeorgyfandio@yahoo.fr]
+
+
+---
