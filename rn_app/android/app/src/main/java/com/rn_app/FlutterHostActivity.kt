@@ -1,5 +1,6 @@
 package com.rn_app
 
+import android.content.Context
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngineCache
@@ -21,6 +22,6 @@ class FlutterHostActivity : FlutterActivity() {
         }
     }
 
-    override fun provideFlutterEngine() =
+    override fun provideFlutterEngine(context: Context) =
         FlutterEngineCache.getInstance().get("flutter_user_engine")
 }
