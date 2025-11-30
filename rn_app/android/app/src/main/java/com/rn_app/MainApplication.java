@@ -13,6 +13,8 @@ import com.facebook.react.defaults.DefaultReactNativeHost;
 
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.FlutterEngineCache;
+import io.flutter.embedding.engine.dart.DartExecutor;
+import io.flutter.plugins.GeneratedPluginRegistrant;
 
 import java.util.List;
 
@@ -61,6 +63,10 @@ public class MainApplication extends Application implements ReactApplication {
     super.onCreate();
 
     flutterEngine = new FlutterEngine(this);
+    flutterEngine
+        .getDartExecutor()
+        .executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault());
+    GeneratedPluginRegistrant.registerWith(flutterEngine);
     FlutterEngineCache.getInstance().put(FLUTTER_ENGINE_ID, flutterEngine);
 
     DefaultNewArchitectureEntryPoint.load();

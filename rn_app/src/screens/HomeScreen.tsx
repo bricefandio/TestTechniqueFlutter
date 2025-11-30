@@ -1,36 +1,53 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, Button } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Text, TextInput, View } from 'react-native';
 
-export default function HomeScreen({ navigation }: any) {
-  const [userId, setUserId] = useState('');
+import { useUserId } from '../state/UserIdContext';
+
+export default function HomeScreen() {
+  const { loading, saveUserId, userId } = useUserId();
+  const [inputValue, setInputValue] = useState('');
+
+  useEffect(() => {
+    if (userId !== null) {
+      setInputValue(String(userId));
+    }
+  }, [userId]);
+
+  const parsedUserId = useMemo(() => parseInt(inputValue, 10), [inputValue]);
+
+  const handleSave = async () => {
+    if (Number.isNaN(parsedUserId) || parsedUserId <= 0) {
+      Alert.alert('ID invalide', 'Merci de saisir un entier positif.');
+      return;
+    }
+
+    await saveUserId(parsedUserId);
+    Alert.alert('ID sauvegardé', 'Le profil Flutter est rafraîchi automatiquement.');
+  };
 
   return (
-    <View style={{ padding: 20 }}>
+    <View style={{ padding: 24 }}>
       <Text style={{ fontSize: 22, fontWeight: 'bold', marginBottom: 20 }}>
-        Test Technique – App RN
+        Saisissez l’identifiant utilisateur
       </Text>
 
-      <Text>ID Utilisateur :</Text>
+      <Text>Identifiant (ex: 1 ou 3)</Text>
       <TextInput
         style={{
           borderWidth: 1,
-          padding: 10,
+          padding: 12,
           marginVertical: 10,
-          borderRadius: 8
+          borderRadius: 8,
+          borderColor: '#ccc',
         }}
-        keyboardType="numeric"
-        value={userId}
-        onChangeText={setUserId}
+        placeholder="1"
+        keyboardType="number-pad"
+        value={inputValue}
+        editable={!loading}
+        onChangeText={setInputValue}
       />
 
-      <Button
-        title="Afficher le profil (Flutter)"
-        onPress={() =>
-          navigation.navigate('FlutterProfile', {
-            userId: parseInt(userId, 10),
-          })
-        }
-      />
+      <Button title="Sauvegarder" onPress={handleSave} disabled={loading} />
     </View>
   );
 }

@@ -1,14 +1,21 @@
 #import "AppDelegate.h"
 
 #import <React/RCTBundleURLProvider.h>
+#import <FlutterPluginRegistrant/GeneratedPluginRegistrant.h>
+
+@interface AppDelegate ()
+@property(nonatomic, strong, readwrite) FlutterEngine *flutterEngine;
+@end
 
 @implementation AppDelegate
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
+  self.flutterEngine = [[FlutterEngine alloc] initWithName:@"flutter_user_engine"];
+  [self.flutterEngine run];
+  [GeneratedPluginRegistrant registerWithRegistry:self.flutterEngine];
+
   self.moduleName = @"rn_app";
-  // You can add your custom initial props in the dictionary below.
-  // They will be passed down to the ViewController used by React Native.
   self.initialProps = @{};
 
   return [super application:application didFinishLaunchingWithOptions:launchOptions];
